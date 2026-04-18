@@ -1,0 +1,154 @@
+name: 🚀 Deploy Demo Environment
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  JAVA_VERSION: '17'
+  NODE_VERSION: '18'
+
+jobs:
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: ☕ Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+      
+      - name: 🏗️ Build with Maven
+        run: |
+          cd backend
+          mvn clean package -DskipTests -B
+      
+      - name: 📦 Upload Backend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target/*.jar
+          retention-days: 7
+
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: 📦 Install Dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: 🏗️ Build Frontend
+        run: |
+          cd frontend
+          npm run build
+      
+      - name: 📦 Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: [build-backend]
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: ☕ Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+      
+      - name: 🧪 Run Tests
+        run: |
+          cd backend
+          mvn test -B
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [build-frontend]
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: 📥 Download Frontend Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: ./dist
+      
+      - name: 📄 Create index.html (if not exists)
+        run: |
+          if [ ! -f dist/index.html ]; then
+            cat > dist/index.html << 'EOF'
+            <!DOCTYPE html>
+            <html lang="zh-CN">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>AI 版权侵权舆情管控系统 - Demo</title>
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                h1 { color: #667eea; }
+                .status { color: #28a745; }
+              </style>
+            </head>
+            <body>
+              <h1>🎉 AI 版权侵权舆情管控系统</h1>
+              <p class="status">✅ 演示环境部署成功</p>
+              <p>前端构建版本：${{ github.sha }}</p>
+              <p>部署时间：${{ github.event.head_commit.timestamp }}</p>
+              <hr>
+              <p>完整功能请访问后端 API</p>
+            </body>
+            </html>
+            EOF
+          fi
+      
+      - name: 🚀 Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: 📤 Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+      
+      - name: 🌐 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
