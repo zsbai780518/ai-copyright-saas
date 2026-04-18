@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: copyright-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ai_copyright_saas
+      MYSQL_USER: copyright
+      MYSQL_PASSWORD: copyright123
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./database/init-data.sql:/docker-entrypoint-initdb.d/init-data.sql
+    ports:
+      - "3306:3306"
+    networks:
+      - copyright-network
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: copyright-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - copyright-network
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: copyright-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - copyright-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # MinIO 对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: copyright-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - copyright-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: copyright-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ai_copyright_saas
+      DB_USERNAME: copyright
+      DB_PASSWORD: copyright123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ES_URIS: http://elasticsearch:9200
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - copyright-network
+    volumes:
+      - ./logs:/data/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/auth/current || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: copyright-frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - copyright-network
+
+  # Nginx 反向代理（可选，如果需要统一入口）
+  nginx:
+    image: nginx:alpine
+    container_name: copyright-nginx
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8081:80"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - copyright-network
+
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  es-data:
+    driver: local
+  minio-data:
+    driver: local
+
+networks:
+  copyright-network:
+    driver: bridge
