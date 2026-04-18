@@ -1,0 +1,24 @@
+{
+  "name": "ai-copyright-saas-frontend",
+  "version": "1.0.0",
+  "description": "AI 版权侵权舆情管控 SaaS 系统 - 前端",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0",
+    "pinia": "^2.1.7",
+    "uni-app": "^1.4.30",
+    "element-plus": "^2.4.4",
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.2",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10",
+    "vue-tsc": "^1.8.25"
+  }
+}
